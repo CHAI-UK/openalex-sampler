@@ -1,0 +1,20 @@
+{
+  "count": 2000,
+  "from_publication_date": "2020-01-01",
+  "to_publication_date": null,
+  "work_type": "article",
+  "language": "en",
+  "domain": "Health Sciences",
+  "field": "Medicine",
+  "subfield": "Oncology",
+  "topic": "Bone health and treatments",
+  "field_match": "primary",
+  "sample_seed": null,
+  "required_fields": ["title", "abstract"],
+  "fields": ["title", "abstract", "publication_date", "publication_venue"],
+  "output_path": "output/papers_medicine.json",
+  "per_page": 100,
+  "require_english_text": true,
+  "require_clean_text": true,
+  "mailto": null
+}
