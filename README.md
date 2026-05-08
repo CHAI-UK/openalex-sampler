@@ -10,7 +10,7 @@ It currently filters by:
 - Domain > Field > Subfield > Topic
 - required fields, currently title and abstract
 
-It also cleans common noisy metadata, including HTML wrappers, LaTeX document dumps, abstracts with mostly non-English characters, and missing abstracts.
+It also cleans common noisy metadata, including HTML wrappers, LaTeX document dumps, and missing abstracts.
 
 ## Usage
 
