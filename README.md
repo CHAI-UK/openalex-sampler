@@ -69,3 +69,45 @@ Each paper currently looks like:
 ```bash
 python -m unittest -v
 ```
+
+## Google Scholar Health Samples
+
+`fetch_scholar_health_samples.py` builds the larger workflow for Google
+Scholar's Health & Medical Sciences h5-core papers:
+
+```bash
+python fetch_scholar_health_samples.py \
+  --scholar-fixture config/scholar_health_top_papers.json \
+  --output-root output/scholar_health_samples/run_001
+```
+
+The script first tries Google Scholar, but Scholar may block automated access.
+When that happens, pass a JSON or CSV fixture with the top five journals and
+top 20 article titles for each journal. A JSON fixture should look like:
+
+```json
+{
+  "journals": [
+    {
+      "name": "Nature Medicine",
+      "h5_index": 279,
+      "h5_median": 459,
+      "articles": [
+        {"title": "Example h5-core paper title", "year": 2021}
+      ]
+    }
+  ]
+}
+```
+
+Outputs are written under the output root, with a `manifest.json` plus one
+folder per resolved parent paper containing:
+
+- `<slug>.json`
+- `papers_before_<slug>.json`
+- `references_<slug>.json`
+
+For `papers_before_<slug>.json`, the sample starts on January 1 of the year
+five years before the parent paper's publication date and ends on the parent
+paper's publication date. For example, a parent published on `2020-02-28`
+samples from `2015-01-01` through `2020-02-28`.
