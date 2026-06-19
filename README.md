@@ -76,14 +76,20 @@ python -m unittest -v
 Scholar's Health & Medical Sciences h5-core papers:
 
 ```bash
+python fetch_scholar_health_samples.py --output-root output/scholar_health_samples/run_001
+```
+
+The script tries to read the top Health & Medical Sciences journals and h5-core
+paper titles from Google Scholar. Scholar may block automated access, so for
+repeatable runs you can provide a hand-prepared JSON or CSV fixture:
+
+```bash
 python fetch_scholar_health_samples.py \
-  --scholar-fixture config/scholar_health_top_papers.json \
+  --scholar-fixture path/to/scholar_health_top_papers.json \
   --output-root output/scholar_health_samples/run_001
 ```
 
-The script first tries Google Scholar, but Scholar may block automated access.
-When that happens, pass a JSON or CSV fixture with the top five journals and
-top 20 article titles for each journal. A JSON fixture should look like:
+A JSON fixture should look like:
 
 ```json
 {
