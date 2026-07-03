@@ -70,6 +70,54 @@ Each paper currently looks like:
 python -m unittest -v
 ```
 
+## Google Scholar Health Samples
+
+`fetch_scholar_health_samples.py` builds the larger workflow for Google
+Scholar's Health & Medical Sciences h5-core papers:
+
+```bash
+python fetch_scholar_health_samples.py --output-root output/scholar_health_samples/run_001
+```
+
+The script tries to read the top Health & Medical Sciences journals and h5-core
+paper titles from Google Scholar. Scholar may block automated access, so for
+repeatable runs you can provide a hand-prepared JSON or CSV fixture:
+
+```bash
+python fetch_scholar_health_samples.py \
+  --scholar-fixture path/to/scholar_health_top_papers.json \
+  --output-root output/scholar_health_samples/run_001
+```
+
+A JSON fixture should look like:
+
+```json
+{
+  "journals": [
+    {
+      "name": "Nature Medicine",
+      "h5_index": 279,
+      "h5_median": 459,
+      "articles": [
+        {"title": "Example h5-core paper title", "year": 2021}
+      ]
+    }
+  ]
+}
+```
+
+Outputs are written under the output root, with a `manifest.json` plus one
+folder per resolved parent paper containing:
+
+- `<slug>.json`
+- `papers_before_<slug>.json`
+- `references_<slug>.json`
+
+For `papers_before_<slug>.json`, the sample starts on January 1 of the year
+five years before the parent paper's publication date and ends on the parent
+paper's publication date. For example, a parent published on `2020-02-28`
+samples from `2015-01-01` through `2020-02-28`.
+
 ## Medicine Topic Batch
 
 To fetch a batch of Medicine papers for every OpenAlex Medicine Topic, run:
