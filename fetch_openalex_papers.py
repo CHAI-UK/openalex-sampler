@@ -7,6 +7,7 @@ import argparse
 import html
 import json
 import logging
+import os
 import re
 import secrets
 import sys
@@ -17,6 +18,8 @@ from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+from dotenv import load_dotenv
 
 
 OPENALEX_BASE_URL = "https://api.openalex.org"
@@ -52,6 +55,13 @@ class OpenAlexError(RuntimeError):
     """Raised when an OpenAlex request or response cannot be handled."""
 
 
+def get_openalex_api_key() -> str | None:
+    """Load the optional API key from the project .env or process environment."""
+    load_dotenv(Path(__file__).with_name(".env"), override=False)
+    value = os.getenv("OPENALEX_API_KEY")
+    return value.strip() if value and value.strip() else None
+
+
 @dataclass(frozen=True)
 class FetchConfig:
     count: int
@@ -71,7 +81,7 @@ class FetchConfig:
     per_page: int
     require_english_text: bool
     require_clean_text: bool
-    mailto: str | None = None
+    api_key: str | None = None
 
 
 def setup_logging() -> None:
@@ -134,7 +144,7 @@ def load_config(
         per_page=raw["per_page"],
         require_english_text=raw.get("require_english_text", raw["language"] == "en"),
         require_clean_text=raw.get("require_clean_text", True),
-        mailto=raw.get("mailto"),
+        api_key=get_openalex_api_key(),
     )
     validate_config(config, max_count=max_count)
     return config
@@ -166,6 +176,10 @@ def validate_config(config: FetchConfig, *, max_count: int | None = 10_000) -> N
         raise ConfigError("require_english_text must be true or false")
     if not isinstance(config.require_clean_text, bool):
         raise ConfigError("require_clean_text must be true or false")
+    if config.api_key is not None and (
+        not isinstance(config.api_key, str) or not config.api_key.strip()
+    ):
+        raise ConfigError("api_key must be a non-empty string or null")
     if not config.domain:
         raise ConfigError("domain must be a non-empty string")
     if not config.field:
@@ -200,38 +214,41 @@ def _is_date(value: Any) -> bool:
 def fetch_json(url: str, params: dict[str, Any]) -> JsonObject:
     query = urlencode({key: value for key, value in params.items() if value is not None})
     request_url = f"{url}?{query}" if query else url
+    safe_params = {**params, "api_key": "REDACTED"} if params.get("api_key") else params
+    safe_query = urlencode({key: value for key, value in safe_params.items() if value is not None})
+    safe_request_url = f"{url}?{safe_query}" if safe_query else url
     request = Request(request_url, headers={"User-Agent": "arcadia-openalex-fetcher/1.0"})
     try:
         with urlopen(request, timeout=60) as response:
             body = response.read().decode("utf-8")
     except HTTPError as exc:
-        raise OpenAlexError(f"OpenAlex HTTP error {exc.code} for {request_url}") from exc
+        raise OpenAlexError(f"OpenAlex HTTP error {exc.code} for {safe_request_url}") from exc
     except URLError as exc:
-        raise OpenAlexError(f"OpenAlex request failed for {request_url}: {exc.reason}") from exc
+        raise OpenAlexError(f"OpenAlex request failed for {safe_request_url}: {exc.reason}") from exc
     except TimeoutError as exc:
-        raise OpenAlexError(f"OpenAlex request timed out for {request_url}") from exc
+        raise OpenAlexError(f"OpenAlex request timed out for {safe_request_url}") from exc
 
     try:
         data = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise OpenAlexError(f"OpenAlex returned invalid JSON for {request_url}: {exc}") from exc
+        raise OpenAlexError(f"OpenAlex returned invalid JSON for {safe_request_url}: {exc}") from exc
     if not isinstance(data, dict):
-        raise OpenAlexError(f"OpenAlex returned unexpected JSON shape for {request_url}")
+        raise OpenAlexError(f"OpenAlex returned unexpected JSON shape for {safe_request_url}")
     return data
 
 
 def resolve_field_id(
     field_name: str,
     fetcher: FetchJson = fetch_json,
-    mailto: str | None = None,
+    api_key: str | None = None,
 ) -> tuple[str, str]:
     params: dict[str, Any] = {
         "search": field_name,
         "per_page": 25,
         "select": "id,display_name",
     }
-    if mailto:
-        params["mailto"] = mailto
+    if api_key:
+        params["api_key"] = api_key
 
     data = fetcher(f"{OPENALEX_BASE_URL}/fields", params)
     results = data.get("results")
@@ -262,8 +279,8 @@ def resolve_topic_hierarchy(
         "search": config.topic,
         "per_page": 25,
     }
-    if config.mailto:
-        params["mailto"] = config.mailto
+    if config.api_key:
+        params["api_key"] = config.api_key
 
     data = fetcher(f"{OPENALEX_BASE_URL}/topics", params)
     results = data.get("results")
@@ -558,8 +575,8 @@ def fetch_papers(
             "per_page": config.per_page,
             "select": select,
         }
-        if config.mailto:
-            params["mailto"] = config.mailto
+        if config.api_key:
+            params["api_key"] = config.api_key
 
         logging.info("Requesting works page %s with per_page=%s", page, config.per_page)
         data = fetcher(f"{OPENALEX_BASE_URL}/works", params)
@@ -650,7 +667,6 @@ def write_output(
                 "per_page": config.per_page,
                 "require_english_text": config.require_english_text,
                 "require_clean_text": config.require_clean_text,
-                "mailto": config.mailto,
             },
             "resolved_topic_hierarchy": topic_hierarchy,
             "query": stats,

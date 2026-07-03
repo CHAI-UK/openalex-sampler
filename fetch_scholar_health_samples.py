@@ -29,6 +29,7 @@ from fetch_openalex_papers import (
     build_select,
     clean_text,
     generate_sample_seed,
+    get_openalex_api_key,
     id_for_filter,
     parse_paper,
     parse_publication_venue,
@@ -161,6 +162,7 @@ def fetch_openalex_json_with_retries(
 def fetch_openalex_json_once(url: str, params: dict[str, Any]) -> JsonObject:
     query = urlencode({key: value for key, value in params.items() if value is not None})
     request_url = f"{url}?{query}" if query else url
+    safe_request_url = _request_url(url, params, redact_api_key=True)
     request = Request(request_url, headers={"User-Agent": "arcadia-openalex-fetcher/1.0"})
     with urlopen(request, timeout=60) as response:
         body = response.read().decode("utf-8")
@@ -168,19 +170,19 @@ def fetch_openalex_json_once(url: str, params: dict[str, Any]) -> JsonObject:
     try:
         data = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise OpenAlexError(f"OpenAlex returned invalid JSON for {request_url}: {exc}") from exc
+        raise OpenAlexError(f"OpenAlex returned invalid JSON for {safe_request_url}: {exc}") from exc
     if not isinstance(data, dict):
-        raise OpenAlexError(f"OpenAlex returned unexpected JSON shape for {request_url}")
+        raise OpenAlexError(f"OpenAlex returned unexpected JSON shape for {safe_request_url}")
     return data
 
 
 def _openalex_http_error(url: str, params: dict[str, Any], exc: HTTPError) -> OpenAlexError:
-    request_url = _request_url(url, params)
+    request_url = _request_url(url, params, redact_api_key=True)
     return OpenAlexError(f"OpenAlex HTTP error {exc.code} for {request_url}")
 
 
 def _openalex_request_error(url: str, params: dict[str, Any], exc: URLError | TimeoutError) -> OpenAlexError:
-    request_url = _request_url(url, params)
+    request_url = _request_url(url, params, redact_api_key=True)
     reason = exc.reason if isinstance(exc, URLError) else exc
     return OpenAlexError(f"OpenAlex request failed for {request_url}: {reason}")
 
@@ -192,16 +194,27 @@ def _openalex_rate_limit_error(
     requested_delay: float,
     max_delay: float,
 ) -> OpenAlexError:
-    request_url = _request_url(url, params)
+    request_url = _request_url(url, params, redact_api_key=True)
     return OpenAlexError(
         "OpenAlex rate limit requested a long wait "
         f"({requested_delay:.0f}s, max configured {max_delay:.0f}s) for {request_url}. "
-        "Try again later and pass --mailto your-email@example.com to use OpenAlex's polite pool."
+        "Try again later or set OPENALEX_API_KEY to a free OpenAlex API key "
+        "for a higher daily limit."
     )
 
 
-def _request_url(url: str, params: dict[str, Any]) -> str:
-    query = urlencode({key: value for key, value in params.items() if value is not None})
+def _request_url(
+    url: str,
+    params: dict[str, Any],
+    *,
+    redact_api_key: bool = False,
+) -> str:
+    display_params = (
+        {**params, "api_key": "REDACTED"}
+        if redact_api_key and params.get("api_key")
+        else params
+    )
+    query = urlencode({key: value for key, value in display_params.items() if value is not None})
     return f"{url}?{query}" if query else url
 
 
@@ -557,7 +570,7 @@ def resolve_parent_paper(
     *,
     fetcher: FetchJson = fetch_openalex_json_with_retries,
     min_confidence: float = 0.86,
-    mailto: str | None = None,
+    api_key: str | None = None,
 ) -> OpenAlexMatch:
     candidates_by_id: dict[str, JsonObject] = {}
     for search_title in openalex_search_titles(article.title):
@@ -567,8 +580,8 @@ def resolve_parent_paper(
             "per_page": 10,
             "select": PARENT_SELECT,
         }
-        if mailto:
-            params["mailto"] = mailto
+        if api_key:
+            params["api_key"] = api_key
         data = fetcher(f"{OPENALEX_BASE_URL}/works", params)
         results = data.get("results")
         if not isinstance(results, list):
@@ -666,7 +679,7 @@ def fetch_references(
     *,
     fetcher: FetchJson = fetch_openalex_json_with_retries,
     per_batch: int = 100,
-    mailto: str | None = None,
+    api_key: str | None = None,
 ) -> tuple[list[JsonObject], JsonObject]:
     references: list[JsonObject] = []
     found = 0
@@ -682,8 +695,8 @@ def fetch_references(
             "per_page": len(batch),
             "select": REFERENCE_SELECT,
         }
-        if mailto:
-            params["mailto"] = mailto
+        if api_key:
+            params["api_key"] = api_key
         data = fetcher(f"{OPENALEX_BASE_URL}/works", params)
         results = data.get("results")
         if not isinstance(results, list):
@@ -744,7 +757,7 @@ def sample_papers_before_parent(
     per_page: int,
     fetcher: FetchJson = fetch_openalex_json_with_retries,
     seed_generator: Callable[[], int] = generate_sample_seed,
-    mailto: str | None = None,
+    api_key: str | None = None,
 ) -> tuple[list[JsonObject], JsonObject]:
     publication_date = parent_work.get("publication_date")
     if not isinstance(publication_date, str):
@@ -771,7 +784,7 @@ def sample_papers_before_parent(
         per_page=per_page,
         require_english_text=True,
         require_clean_text=True,
-        mailto=mailto,
+        api_key=api_key,
     )
     return fetch_topic_sample(config, topic_hierarchy, fetcher=fetcher, seed_generator=seed_generator)
 
@@ -805,8 +818,8 @@ def fetch_topic_sample(
             "per_page": config.per_page,
             "select": select,
         }
-        if config.mailto:
-            params["mailto"] = config.mailto
+        if config.api_key:
+            params["api_key"] = config.api_key
         data = fetcher(f"{OPENALEX_BASE_URL}/works", params)
         results = data.get("results")
         if not isinstance(results, list):
@@ -891,7 +904,7 @@ def run_workflow(
     per_page: int,
     fetcher: FetchJson = fetch_openalex_json_with_retries,
     seed_generator: Callable[[], int] = generate_sample_seed,
-    mailto: str | None = None,
+    api_key: str | None = None,
 ) -> JsonObject:
     used_slugs: set[str] = set()
     manifest: JsonObject = {
@@ -921,7 +934,7 @@ def run_workflow(
                 continue
             article = ScholarArticle(title=cleaned_title, year=raw_article.year)
             logging.info("Resolving %s / %s", journal.name, article.title)
-            match = resolve_parent_paper(article, journal, fetcher=fetcher, mailto=mailto)
+            match = resolve_parent_paper(article, journal, fetcher=fetcher, api_key=api_key)
             entry: JsonObject = {
                 "journal": journal.name,
                 "scholar_title": article.title,
@@ -955,7 +968,7 @@ def run_workflow(
 
             slug = slugify(parent["title"], used_slugs)
             folder = output_root / slug
-            references, reference_stats = fetch_references(reference_ids(match.work), fetcher=fetcher, mailto=mailto)
+            references, reference_stats = fetch_references(reference_ids(match.work), fetcher=fetcher, api_key=api_key)
             try:
                 sampled, sample_stats = sample_papers_before_parent(
                     match.work,
@@ -964,7 +977,7 @@ def run_workflow(
                     per_page=per_page,
                     fetcher=fetcher,
                     seed_generator=seed_generator,
-                    mailto=mailto,
+                    api_key=api_key,
                 )
             except OpenAlexError as exc:
                 sampled = []
@@ -1026,7 +1039,7 @@ def _base_config() -> FetchConfig:
         per_page=100,
         require_english_text=True,
         require_clean_text=True,
-        mailto=None,
+        api_key=None,
     )
 
 
@@ -1050,7 +1063,7 @@ def _parent_config() -> FetchConfig:
         per_page=config.per_page,
         require_english_text=config.require_english_text,
         require_clean_text=config.require_clean_text,
-        mailto=config.mailto,
+        api_key=config.api_key,
     )
 
 
@@ -1068,7 +1081,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--count", type=int, default=2000, help="Sample papers per resolved parent paper.")
     parser.add_argument("--sample-seed", type=int, default=None, help="Optional OpenAlex sample seed.")
     parser.add_argument("--per-page", type=int, default=100, help="OpenAlex page size, max 100.")
-    parser.add_argument("--mailto", default=None, help="Optional mailto parameter for OpenAlex polite pool.")
     return parser.parse_args(argv)
 
 
@@ -1091,7 +1103,7 @@ def run(argv: list[str] | None = None) -> int:
             count=args.count,
             sample_seed=args.sample_seed,
             per_page=args.per_page,
-            mailto=args.mailto,
+            api_key=get_openalex_api_key(),
         )
         logging.info(
             "Done: resolved=%s unresolved=%s manifest=%s",

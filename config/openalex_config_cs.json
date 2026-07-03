@@ -15,6 +15,5 @@
   "output_path": "output/papers_cs.json",
   "per_page": 100,
   "require_english_text": true,
-  "require_clean_text": true,
-  "mailto": null
+  "require_clean_text": true
 }

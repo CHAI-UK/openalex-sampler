@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fetch_openalex_papers import (
     ConfigError,
@@ -45,7 +46,7 @@ class FetcherTests(unittest.TestCase):
             "per_page": 1,
             "require_english_text": True,
             "require_clean_text": True,
-            "mailto": None,
+            "api_key": None,
         }
         values.update(overrides)
         return FetchConfig(**values)
@@ -93,6 +94,26 @@ class FetcherTests(unittest.TestCase):
             path.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaises(ConfigError):
                 load_config(path)
+
+    def test_load_config_reads_api_key_from_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            data = dict(self.config().__dict__)
+            del data["api_key"]
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+            with patch.dict("os.environ", {"OPENALEX_API_KEY": "test-api-key"}):
+                self.assertEqual(load_config(path).api_key, "test-api-key")
+
+    def test_load_config_treats_blank_environment_api_key_as_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            data = dict(self.config().__dict__)
+            del data["api_key"]
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+            with patch.dict("os.environ", {"OPENALEX_API_KEY": "   "}):
+                self.assertIsNone(load_config(path).api_key)
 
     def test_resolve_field_id_requires_exact_match(self):
         def fetcher(url, params):
@@ -405,7 +426,11 @@ class FetcherTests(unittest.TestCase):
                 ],
             }
 
-        papers, stats = fetch_papers(self.config(per_page=1), self.topic_hierarchy(), fetcher)
+        papers, stats = fetch_papers(
+            self.config(per_page=1, api_key="test-api-key"),
+            self.topic_hierarchy(),
+            fetcher,
+        )
 
         self.assertEqual(len(papers), 2)
         self.assertEqual(papers[0]["abstract"], "A paper")
@@ -414,6 +439,7 @@ class FetcherTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["seed"], 123)
         self.assertEqual(calls[0][1]["page"], 1)
         self.assertEqual(calls[0][1]["per_page"], 1)
+        self.assertEqual(calls[0][1]["api_key"], "test-api-key")
         self.assertEqual(
             calls[0][1]["select"],
             "display_name,abstract_inverted_index,publication_date,primary_location,locations",
@@ -455,7 +481,7 @@ class FetcherTests(unittest.TestCase):
             output_path = Path(tmp) / "output" / "papers.json"
             write_output(
                 output_path,
-                self.config(),
+                self.config(api_key="secret-api-key"),
                 self.topic_hierarchy(),
                 [
                     {
@@ -471,6 +497,8 @@ class FetcherTests(unittest.TestCase):
             raw = output_path.read_text(encoding="utf-8")
             self.assertIn("“quoted”", raw)
             self.assertNotIn("\\u201c", raw)
+            self.assertNotIn("secret-api-key", raw)
+            self.assertNotIn("api_key", json.loads(raw)["metadata"]["config"])
             parsed = json.loads(raw)
             self.assertEqual(parsed["papers"][0]["abstract"], "A “quoted” abstract.")
 
