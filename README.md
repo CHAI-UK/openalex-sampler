@@ -69,3 +69,47 @@ Each paper currently looks like:
 ```bash
 python -m unittest -v
 ```
+
+## Medicine Topic Batch
+
+To fetch a batch of Medicine papers for every OpenAlex Medicine Topic, run:
+
+```bash
+python fetch_medicine_topics.py
+```
+
+This discovers all Topics under the OpenAlex Medicine Field, then writes up to
+2,000 English article papers per Topic from 2005 onward. Output is grouped by
+Subfield folder under `output/medicine_2005_present/`, for example:
+
+```text
+output/medicine_2005_present/
+  Oncology/
+    Cancer Treatment.json
+  Emergency Medicine/
+    Emergency Care.json
+  manifest.json
+```
+
+The batch script updates `manifest.json` after each Topic. Manifest entries
+record the Topic, Subfield, output path, requested paper count, written paper
+count, skipped paper count, and status.
+
+Existing Topic files are skipped by default so interrupted runs can be resumed:
+
+```bash
+python fetch_medicine_topics.py
+```
+
+Use `--overwrite` to refetch files that already exist:
+
+```bash
+python fetch_medicine_topics.py --overwrite
+```
+
+Useful batch options:
+
+- `--output-root`: output directory for Subfield folders and `manifest.json`
+- `--overwrite`: refetch existing Topic JSON files
+- `--mailto`: email address to include in OpenAlex API requests
+- `--sample-seed`: fixed OpenAlex sample seed to reuse for every Topic
