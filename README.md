@@ -70,6 +70,50 @@ Each paper currently looks like:
 python -m unittest -v
 ```
 
+## Medicine Topic Batch
+
+To fetch a batch of Medicine papers for every OpenAlex Medicine Topic, run:
+
+```bash
+python fetch_medicine_topics.py
+```
+
+This discovers all Topics under the OpenAlex Medicine Field, then writes up to
+2,000 English article papers per Topic from 2005 onward. Output is grouped by
+Subfield folder under `output/medicine_2005_present/`, for example:
+
+```text
+output/medicine_2005_present/
+  Oncology/
+    Cancer Treatment.json
+  Emergency Medicine/
+    Emergency Care.json
+  manifest.json
+```
+
+The batch script updates `manifest.json` after each Topic. Manifest entries
+record the Topic, Subfield, output path, requested paper count, written paper
+count, skipped paper count, and status.
+
+Existing Topic files are skipped by default so interrupted runs can be resumed:
+
+```bash
+python fetch_medicine_topics.py
+```
+
+Use `--overwrite` to refetch files that already exist:
+
+```bash
+python fetch_medicine_topics.py --overwrite
+```
+
+Useful batch options:
+
+- `--output-root`: output directory for Subfield folders and `manifest.json`
+- `--overwrite`: refetch existing Topic JSON files
+- `--mailto`: email address to include in OpenAlex API requests
+- `--sample-seed`: fixed OpenAlex sample seed to reuse for every Topic
+
 ## Google Scholar Health Samples
 
 `fetch_scholar_health_samples.py` builds the larger workflow for Google
@@ -118,46 +162,83 @@ five years before the parent paper's publication date and ends on the parent
 paper's publication date. For example, a parent published on `2020-02-28`
 samples from `2015-01-01` through `2020-02-28`.
 
-## Medicine Topic Batch
+## Local Parquet Workflow
 
-To fetch a batch of Medicine papers for every OpenAlex Medicine Topic, run:
+To sample from a downloaded OpenAlex works snapshot instead of calling the API,
+install DuckDB:
 
 ```bash
-python fetch_medicine_topics.py
+python3 -m pip install -r requirements.txt
 ```
 
-This discovers all Topics under the OpenAlex Medicine Field, then writes up to
-2,000 English article papers per Topic from 2005 onward. Output is grouped by
-Subfield folder under `output/medicine_2005_present/`, for example:
+The downloaded snapshot is partitioned by update date, so querying it directly by
+Topic still scans every source file. Build a separate optimized copy once:
+
+```bash
+python build_topic_partitions.py \
+  --input /path/to/openalex-snapshot/works-parquet \
+  --output /path/to/openalex-snapshot/works-by-topic-parquet \
+  --threads 2 \
+  --memory-limit 8GB \
+  --max-open-files 4 \
+  --log-file output/build_topic_partitions.log
+```
+
+The builder leaves the original snapshot unchanged. It checkpoints source-file
+batches into bounded-memory buckets, then writes compact Parquet files grouped by
+primary Topic. The optimized output looks like:
 
 ```text
-output/medicine_2005_present/
-  Oncology/
-    Cancer Treatment.json
-  Emergency Medicine/
-    Emergency Care.json
+openalex-snapshot/works-by-topic-parquet/
+  data/
+    topic_id=T10036/
+      part_....parquet
+  work-id-index/
+    id_bucket=0/
+      part_....parquet
   manifest.json
+  topics.json
 ```
 
-The batch script updates `manifest.json` after each Topic. Manifest entries
-record the Topic, Subfield, output path, requested paper count, written paper
-count, skipped paper count, and status.
+Topic records retain the fields needed by the sampler plus `doi`,
+`referenced_works`, and `cited_by_count`. `work-id-index/` maps every work ID to
+its primary-Topic partition so reference IDs can be located without scanning all
+Topics.
 
-Existing Topic files are skipped by default so interrupted runs can be resumed:
+The build can take several hours. Consider running it in a persistent terminal
+session using `tmux`, `screen`, a job scheduler, or an equivalent tool. Re-running
+the same command resumes completed batch and compaction checkpoints. A successful
+build creates top-level `manifest.json` and `topics.json`, removes the temporary
+`.build/` directory, and logs `Topic-partitioned dataset complete`.
+
+After the build, sample from the optimized dataset:
 
 ```bash
-python fetch_medicine_topics.py
+python fetch_openalex_papers_parquet.py \
+  --config config/openalex_config_cs_parquet.json \
+  --snapshot /path/to/openalex-snapshot/works-by-topic-parquet \
+  --output output/papers_cs_optimized.json
 ```
 
-Use `--overwrite` to refetch files that already exist:
+The local sampler applies the same publication-date, work-type, language,
+primary-Topic, required-field, and text-cleaning rules as the API sampler. It
+uses seeded hash-based random sampling, records the effective seed and snapshot
+date in the output metadata, and does not have the API's 10,000-paper limit.
 
-```bash
-python fetch_medicine_topics.py --overwrite
-```
+The example Parquet config also accepts `snapshot_path`, so `--snapshot` can be
+omitted when the config already points to the optimized directory.
 
-Useful batch options:
+Useful builder options:
 
-- `--output-root`: output directory for Subfield folders and `manifest.json`
-- `--overwrite`: refetch existing Topic JSON files
-- `--mailto`: email address to include in OpenAlex API requests
-- `--sample-seed`: fixed OpenAlex sample seed to reuse for every Topic
+- `--batch-size`: source Parquet files per resumable checkpoint
+- `--threads`: DuckDB worker threads
+- `--memory-limit`: maximum memory available to DuckDB
+- `--max-open-files`: maximum simultaneous partition writers
+- `--compression`: `ZSTD` or `SNAPPY` output compression
+- `--log-file`: persistent progress log path
+
+Useful local sampler options:
+
+- `--config`: JSON sampling configuration
+- `--snapshot`: override the config's local snapshot path
+- `--output`: override the config's output JSON path

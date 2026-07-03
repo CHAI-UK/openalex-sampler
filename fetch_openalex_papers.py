@@ -82,7 +82,11 @@ def setup_logging() -> None:
     )
 
 
-def load_config(path: str | Path) -> FetchConfig:
+def load_config(
+    path: str | Path,
+    *,
+    max_count: int | None = 10_000,
+) -> FetchConfig:
     config_path = Path(path)
     try:
         raw = json.loads(config_path.read_text(encoding="utf-8"))
@@ -132,15 +136,18 @@ def load_config(path: str | Path) -> FetchConfig:
         require_clean_text=raw.get("require_clean_text", True),
         mailto=raw.get("mailto"),
     )
-    validate_config(config)
+    validate_config(config, max_count=max_count)
     return config
 
 
-def validate_config(config: FetchConfig) -> None:
+def validate_config(config: FetchConfig, *, max_count: int | None = 10_000) -> None:
     if not isinstance(config.count, int) or config.count <= 0:
         raise ConfigError("count must be a positive integer")
-    if config.count > 10_000:
-        raise ConfigError("count must be 10,000 or lower because OpenAlex sample is limited to 10,000")
+    if max_count is not None and config.count > max_count:
+        raise ConfigError(
+            f"count must be {max_count:,} or lower because OpenAlex sample is limited "
+            f"to {max_count:,}"
+        )
     if not isinstance(config.per_page, int) or not 1 <= config.per_page <= 100:
         raise ConfigError("per_page must be an integer between 1 and 100")
     if config.sample_seed is not None and not isinstance(config.sample_seed, int):
