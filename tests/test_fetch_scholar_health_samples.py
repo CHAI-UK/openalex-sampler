@@ -388,6 +388,7 @@ class ScholarHealthSampleTests(unittest.TestCase):
             ["https://openalex.org/W10", "https://openalex.org/W11", "https://openalex.org/W10"],
             fetcher=fetcher,
             per_batch=100,
+            api_key="test-api-key",
         )
 
         self.assertEqual(len(refs), 1)
@@ -396,6 +397,7 @@ class ScholarHealthSampleTests(unittest.TestCase):
         self.assertEqual(stats["found"], 1)
         self.assertEqual(stats["missing"], 1)
         self.assertEqual(calls[0]["filter"], "openalex:W10|W11")
+        self.assertEqual(calls[0]["api_key"], "test-api-key")
 
     def test_sample_papers_before_parent_builds_date_bounded_topic_sample(self):
         calls = []

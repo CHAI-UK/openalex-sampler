@@ -49,13 +49,14 @@ class MedicineBatchTests(unittest.TestCase):
                 "results": [topic("T2", "Tumor Immunology")],
             }
 
-        topics = discover_medicine_topics(fetcher)
+        topics = discover_medicine_topics(fetcher, api_key="test-api-key")
 
         self.assertEqual([item["display_name"] for item in topics], ["Cancer Treatment", "Tumor Immunology"])
         self.assertEqual(calls[0][0], "https://api.openalex.org/topics")
         self.assertEqual(calls[0][1]["filter"], "field.id:27")
         self.assertEqual(calls[0][1]["per_page"], 200)
         self.assertEqual(calls[0][1]["cursor"], "*")
+        self.assertEqual(calls[0][1]["api_key"], "test-api-key")
         self.assertEqual(calls[1][1]["cursor"], "next-page")
 
     def test_discover_medicine_topics_rejects_unexpected_shape(self):
@@ -102,7 +103,10 @@ class MedicineBatchTests(unittest.TestCase):
             topic("T3", "Broken Topic", "Oncology", "2730"),
         ]
 
-        def discoverer(fetcher):
+        discovered_with = []
+
+        def discoverer(fetcher, api_key=None):
+            discovered_with.append(api_key)
             return topics
 
         def paper_fetcher(config, hierarchy):
@@ -126,6 +130,7 @@ class MedicineBatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manifest = run_batch(
                 output_root=Path(tmp),
+                api_key="test-api-key",
                 discoverer=discoverer,
                 paper_fetcher=paper_fetcher,
             )
@@ -137,6 +142,7 @@ class MedicineBatchTests(unittest.TestCase):
             self.assertTrue((Path(tmp) / "Oncology" / "Cancer Treatment.json").exists())
             self.assertTrue((Path(tmp) / "Emergency Medicine" / "Emergency Care.json").exists())
             self.assertTrue((Path(tmp) / "manifest.json").exists())
+            self.assertEqual(discovered_with, ["test-api-key"])
 
     def test_run_batch_skips_existing_file_unless_overwrite(self):
         calls = []
@@ -145,7 +151,7 @@ class MedicineBatchTests(unittest.TestCase):
             "papers": [{"title": "Existing", "abstract": "A"}],
         }
 
-        def discoverer(fetcher):
+        def discoverer(fetcher, api_key=None):
             return [topic("T1", "Cancer Treatment")]
 
         def paper_fetcher(config, hierarchy):

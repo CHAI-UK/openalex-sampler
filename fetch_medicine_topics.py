@@ -19,6 +19,7 @@ from fetch_openalex_papers import (
     OpenAlexError,
     fetch_json,
     fetch_papers,
+    get_openalex_api_key,
     setup_logging,
     write_output,
 )
@@ -32,13 +33,13 @@ MEDICINE_OUTPUT_FIELDS = ["title", "abstract", "publication_date", "publication_
 REQUESTED_PAPERS_PER_TOPIC = 2000
 TOPIC_PAGE_SIZE = 200
 
-TopicDiscoverer = Callable[[Callable[[str, dict[str, Any]], JsonObject]], list[JsonObject]]
+TopicDiscoverer = Callable[..., list[JsonObject]]
 PaperFetcher = Callable[[FetchConfig, JsonObject], tuple[list[JsonObject], JsonObject]]
 
 
 def discover_medicine_topics(
     fetcher: Callable[[str, dict[str, Any]], JsonObject] = fetch_json,
-    mailto: str | None = None,
+    api_key: str | None = None,
 ) -> list[JsonObject]:
     topics: list[JsonObject] = []
     cursor: str | None = "*"
@@ -50,8 +51,8 @@ def discover_medicine_topics(
             "cursor": cursor,
             "select": "id,display_name,domain,field,subfield",
         }
-        if mailto:
-            params["mailto"] = mailto
+        if api_key:
+            params["api_key"] = api_key
 
         data = fetcher(f"{OPENALEX_BASE_URL}/topics", params)
         results = data.get("results")
@@ -114,7 +115,7 @@ def output_path_for_topic(topic: JsonObject, output_root: Path) -> Path:
 def build_medicine_config(
     topic: JsonObject,
     output_root: Path,
-    mailto: str | None = None,
+    api_key: str | None = None,
     sample_seed: int | None = None,
 ) -> FetchConfig:
     subfield_name = topic_level(topic, "subfield")["display_name"]
@@ -137,7 +138,7 @@ def build_medicine_config(
         per_page=100,
         require_english_text=True,
         require_clean_text=True,
-        mailto=mailto,
+        api_key=api_key,
     )
 
 
@@ -156,19 +157,19 @@ def build_topic_hierarchy(topic: JsonObject) -> JsonObject:
 def run_batch(
     output_root: Path = MEDICINE_OUTPUT_ROOT,
     overwrite: bool = False,
-    mailto: str | None = None,
+    api_key: str | None = None,
     sample_seed: int | None = None,
     discoverer: TopicDiscoverer = discover_medicine_topics,
     paper_fetcher: PaperFetcher = fetch_papers,
     fetcher: Callable[[str, dict[str, Any]], JsonObject] = fetch_json,
 ) -> JsonObject:
-    topics = discoverer(fetcher)
+    topics = discoverer(fetcher, api_key=api_key)
     output_root.mkdir(parents=True, exist_ok=True)
     manifest_entries: list[JsonObject] = []
     used_paths: set[Path] = set()
 
     for index, topic in enumerate(topics, start=1):
-        config = build_medicine_config(topic, output_root, mailto=mailto, sample_seed=sample_seed)
+        config = build_medicine_config(topic, output_root, api_key=api_key, sample_seed=sample_seed)
         hierarchy = build_topic_hierarchy(topic)
         output_path = unique_output_path(Path(config.output_path), topic, used_paths)
         used_paths.add(output_path)
@@ -332,10 +333,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Refetch Topic files that already exist.",
     )
     parser.add_argument(
-        "--mailto",
-        help="Optional email address to include in OpenAlex API requests.",
-    )
-    parser.add_argument(
         "--sample-seed",
         type=int,
         help="Optional fixed OpenAlex sample seed for every Topic.",
@@ -350,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest = run_batch(
             output_root=Path(args.output_root),
             overwrite=args.overwrite,
-            mailto=args.mailto,
+            api_key=get_openalex_api_key(),
             sample_seed=args.sample_seed,
         )
     except (OpenAlexError, OSError) as exc:

@@ -16,6 +16,5 @@
   "per_page": 100,
   "require_english_text": true,
   "require_clean_text": true,
-  "mailto": null,
-  "snapshot_path": "../../openalex-snapshot/works-by-topic-parquet"
+  "snapshot_path": "/path/to/openalex-snapshot/works-by-topic-parquet"
 }

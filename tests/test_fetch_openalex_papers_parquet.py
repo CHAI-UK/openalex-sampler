@@ -47,7 +47,6 @@ class ParquetFetcherTests(unittest.TestCase):
             "per_page": 100,
             "require_english_text": True,
             "require_clean_text": True,
-            "mailto": None,
         }
         values.update(overrides)
         return FetchConfig(**values)
